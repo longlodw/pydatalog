@@ -9,15 +9,18 @@ class Db:
         self.arity = arity
         self.relation = relation
         self._create_table_if_not_exists(relation)
-    def store(self, tuple_data: tuple) -> None:
+    def store(self, tuple_data: Tuple[str, ...]) -> bool:
         if len(tuple_data) != self.arity:
             raise ValueError(f"Tuple arity {len(tuple_data)} does not match expected arity {self.arity}")
         cursor = self._db_connection.cursor()
         placeholders = ', '.join(['?'] * self.arity)
         cursor.execute(f'''
             INSERT INTO {self.relation} VALUES ({placeholders})
+            ON CONFLICT DO NOTHING
         ''', tuple_data)
+        rows_inserted = cursor.rowcount
         self._db_connection.commit()
+        return rows_inserted > 0
 
     def load(self, *keys: Tuple[int, str]) -> Iterator[Tuple[str, ...]]:
         cursor = self._db_connection.cursor()
@@ -43,7 +46,8 @@ class Db:
         cursor = self._db_connection.cursor()
         cursor.execute(f'''
             CREATE TABLE IF NOT EXISTS {relation} (
-                {' ,'.join([f'col{i} TEXT' for i in range(self.arity)])}
+                {' ,'.join([f'col{i} TEXT' for i in range(self.arity)])},
+                UNIQUE ({', '.join([f'col{i}' for i in range(self.arity)])})
             )
         ''')
         self._db_connection.commit()

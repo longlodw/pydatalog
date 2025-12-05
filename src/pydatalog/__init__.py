@@ -18,8 +18,6 @@ from .nodes import (
 from .visitors import Visitor, Transformer
 from .printer import print_program
 from .validation import validate
-from .magic import magic_rewrite
-
 __all__ = [
     "Span",
     "Diagnostic",
@@ -39,5 +37,4 @@ __all__ = [
     "Transformer",
     "print_program",
     "validate",
-    "magic_rewrite",
 ]
