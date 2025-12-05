@@ -247,6 +247,144 @@ def test_union_conflict_returns_none():
     result = _union(left, right)
     assert result is None
 
+def test_query_unknown_relation_returns_empty():
+    conn = sqlite3.connect(":memory:")
+    # minimal plan with unrelated rule
+    rules = [
+        Rule(Atom("p", (Constant("x"),)), ()),
+    ]
+    plan = RulesPlan(rules, idb_storage=conn, edb_storage=conn)
+    plan.execute()
+    assert list(plan.query("unknown")) == []
+    conn.close()
+
+
+def test_duplicate_fact_does_not_propagate_twice():
+    conn = sqlite3.connect(":memory:")
+    # Two identical fact rules for head 'h'
+    rules = [
+        Rule(Atom("h", (Constant("v"),)), ()),
+        Rule(Atom("h", (Constant("v"),)), ()),
+        # Derived relation depends on h
+        Rule(Atom("d", (Variable("X"),)), (Atom("h", (Variable("X"),)),)),
+    ]
+    plan = RulesPlan(rules, idb_storage=conn, edb_storage=conn)
+    plan.execute()
+    rows = list(plan.query("d"))
+    assert rows == [("v",)]
+    conn.close()
+
+
+def test_explored_mapping_prevents_rework():
+    conn = sqlite3.connect(":memory:")
+    q = Db(conn, "q", 1)
+    q.store(("x",))
+    rules = [
+        Rule(Atom("p", (Variable("X"),)), (Atom("q", (Variable("X"),)),)),
+    ]
+    plan = RulesPlan(rules, idb_storage=conn, edb_storage=conn)
+    # Query same keys twice; derived 'p' should have single row
+    list(plan.query("q", (0, "x")))
+    list(plan.query("q", (0, "x")))
+    rows = list(plan.query("p"))
+    assert rows == [("x",)]
+    conn.close()
+
+
+def test_body_constant_mismatch_blocks_propagation():
+    conn = sqlite3.connect(":memory:")
+    a = Db(conn, "a", 2)
+    a.store(("x", "d"))  # second value mismatches expected constant
+    rules = [
+        Rule(Atom("r", (Variable("X"),)), (Atom("a", (Variable("X"), Constant("c"))),)),
+    ]
+    plan = RulesPlan(rules, idb_storage=conn, edb_storage=conn)
+    rows = list(plan.query("r"))
+    assert rows == []
+    conn.close()
+
+
+def test_edb_head_propagates_to_uppers_on_query():
+    conn = sqlite3.connect(":memory:")
+    q = Db(conn, "q", 1)
+    q.store(("z",))
+    rules = [
+        Rule(Atom("p", (Variable("X"),)), (Atom("q", (Variable("X"),)),)),
+    ]
+    plan = RulesPlan(rules, idb_storage=conn, edb_storage=conn)
+    # Query base EDB head to trigger downward propagation to its uppers
+    list(plan.query("q"))
+    rows = list(plan.query("p"))
+    assert rows == [("z",)]
+    conn.close()
+
+
+def test_union_empty_right_left():
+    assert _union({0: "a"}, {}) == {0: "a"}
+    assert _union({}, {1: "b"}) == {1: "b"}
+
+
+def test_union_multiple_key_overlap_and_conflict():
+    assert _union({0: "a", 1: "b"}, {0: "a", 1: "b"}) == {0: "a", 1: "b"}
+    assert _union({0: "a", 1: "b"}, {0: "x", 1: "b"}) is None
+
+
+def test_query_unknown_with_keys_returns_empty():
+    conn = sqlite3.connect(":memory:")
+    rules = []
+    plan = RulesPlan(rules, idb_storage=conn, edb_storage=conn)
+    assert list(plan.query("unknown", (0, "x"))) == []
+    conn.close()
+
+
+def test_head_constant_applied_in_result():
+    conn = sqlite3.connect(":memory:")
+    a = Db(conn, "a", 1)
+    a.store(("x",))
+    # Head sets constant 'c'; body matches any X from relation 'a'
+    rules = [
+        Rule(Atom("p", (Constant("c"),)), (Atom("a", (Variable("X"),)),)),
+    ]
+    plan = RulesPlan(rules, idb_storage=conn, edb_storage=conn)
+    # Query should return the head constant regardless of body value
+    rows = list(plan.query("p"))
+    assert rows == [("c",)]
+    conn.close()
+
+
+def test_insufficient_body_mapping_prevents_derivation():
+    conn = sqlite3.connect(":memory:")
+    # Body requires mapping for a canonical that won't be provided
+    a = Db(conn, "a", 2)
+    a.store(("x", "y"))
+    # In head, only one variable; body second term maps to a canonical without value
+    rules = [
+        Rule(Atom("r", (Variable("X"),)), (Atom("a", (Variable("X"), Variable("Z"))),)),
+    ]
+    plan = RulesPlan(rules, idb_storage=conn, edb_storage=conn)
+    # Apply a filter that binds X but leaves Z unresolved in canonical mapping resolution paths
+    rows = list(plan.query("r", (0, "x")))
+    assert rows == [("x",)]
+    # Now filter to a value that cannot be matched; ensure no derivation
+    rows2 = list(plan.query("r", (0, "none")))
+    assert rows2 == []
+    conn.close()
+
+
+def test_to_lower_mapping_omits_unbound_canonicals():
+    conn = sqlite3.connect(":memory:")
+    a = Db(conn, "a", 2)
+    a.store(("k", "const"))
+    rules = [
+        # head variable X, body expects (X, "const"); leave any other canonical unmapped
+        Rule(Atom("r", (Variable("X"),)), (Atom("a", (Variable("X"), Constant("const"))),)),
+    ]
+    plan = RulesPlan(rules, idb_storage=conn, edb_storage=conn)
+    rows = list(plan.query("r"))
+    assert rows == [("k",)]
+    conn.close()
+
+
 if __name__ == "__main__":
     print("Running tests...")
     test_simple_projection_from_edb()
@@ -262,3 +400,14 @@ if __name__ == "__main__":
     test_union_disjoint_merges()
     test_union_overlapping_same_values_keeps()
     test_union_conflict_returns_none()
+    test_query_unknown_relation_returns_empty()
+    test_duplicate_fact_does_not_propagate_twice()
+    test_explored_mapping_prevents_rework()
+    test_body_constant_mismatch_blocks_propagation()
+    test_edb_head_propagates_to_uppers_on_query()
+    test_union_empty_right_left()
+    test_union_multiple_key_overlap_and_conflict()
+    test_query_unknown_with_keys_returns_empty()
+    test_head_constant_applied_in_result()
+    test_insufficient_body_mapping_prevents_derivation()
+    test_to_lower_mapping_omits_unbound_canonicals()
