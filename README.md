@@ -9,7 +9,6 @@
 
 - [Installation](#installation)
 - [Quick start](#quick-start)
-- [Visitors and transformers](#visitors-and-transformers)
 - [API](#api)
 - [License](#license)
 
@@ -26,73 +25,58 @@ pip install pydatalog
 Construct AST using simple dataclasses or ergonomic factories:
 
 ```python
-from pydatalog import Program, Rule, Atom, Variable, Constant
+from pydatalog import program, rule, fact, atom, Variable, Constant, print_program
+from pydatalog.execution import RulesPlan
+import sqlite3
 
-prog = Program(rules=(
-    Rule(Atom("edge", (Constant("a"), Constant("b"))), ()),
-    Rule(Atom("edge", (Constant("b"), Constant("c"))), ()),
-    Rule(Atom("path", (Variable("X"), Variable("Y"))), (
-        Atom("edge", (Variable("X"), Variable("Y"))),
-    )),
-))
-```
-
-Or use factories for strict, readable construction:
-
-```python
-from pydatalog import program, rule, fact, atom, Variable, Constant
-
+# Define a program:
+# edge(a, b).
+# edge(b, c).
+# path(X, Y) :- edge(X, Y).
+# path(X, Z) :- edge(X, Y), path(Y, Z).
 prog = program(
     fact(atom("edge", Constant("a"), Constant("b"))),
     fact(atom("edge", Constant("b"), Constant("c"))),
     rule(atom("path", Variable("X"), Variable("Y")), atom("edge", Variable("X"), Variable("Y"))),
+    rule(
+        atom("path", Variable("X"), Variable("Z")),
+        atom("edge", Variable("X"), Variable("Y")),
+        atom("path", Variable("Y"), Variable("Z")),
+    ),
 )
-```
-
-Print and validate:
-
-```python
-from pydatalog import print_program, validate
 
 print(print_program(prog))
-for d in validate(prog):
-    print(d)
-```
 
-## Visitors and transformers
+# Execute the program using SQLite as the storage engine
+conn = sqlite3.connect(":memory:")
+plan = RulesPlan(prog, idb_storage=conn, edb_storage=conn)
+plan.execute()
 
-Nodes are a union: `Node = Program | Rule | Atom`. Terms are not nodes: `Term = Variable | Constant`.
-
-- Visitor: pre-order traversal over nodes; optionally visit terms.
-- Transformer: post-order transform; optionally transform terms.
-
-```python
-from dataclasses import replace
-from pydatalog import Visitor, Transformer, Atom, Variable
-
-# Collect node kinds
-kinds = []
-Visitor(lambda n: kinds.append(type(n).__name__)).visit(prog)
-
-# Rename relations
-renamed = Transformer(
-    lambda n: replace(n, relation="edge2") if isinstance(n, Atom) and n.relation == "edge" else n
-).transform(prog)
-
-# Optionally transform terms
-renamed_terms = Transformer(
-    lambda n: n,
-    term_fn=lambda t: Variable("Z") if isinstance(t, Variable) else t,
-    transform_terms=True,
-).transform(prog)
+# Query results
+print("Paths:")
+for result in plan.query("path"):
+    print(result)
 ```
 
 ## API
 
-- Nodes: `Program`, `Rule`, `Atom`
-- Terms: `Variable`, `Constant`
-- Factories: `program`, `rule`, `fact`, `atom`
-- Utilities: `print_program`, `validate`, `Visitor`, `Transformer`
+### AST Nodes (`pydatalog.nodes`)
+- `Program`, `Rule`, `Atom`
+- `Variable`, `Constant`
+
+### Helper Factories (`pydatalog`)
+- `program(*rules)`
+- `rule(head, *body)`
+- `fact(head)`
+- `atom(relation, *terms)`
+
+### Execution (`pydatalog.execution`)
+- `RulesPlan(program, idb_storage, edb_storage)`: creates an execution plan backed by `sqlite3.Connection` objects.
+  - `execute()`: Runs the Datalog program logic.
+  - `query(relation_name, *keys)`: Yields tuples satisfying the relation.
+
+### Utilities
+- `print_program(program)`: Returns a string representation of the program.
 
 ## License
 
