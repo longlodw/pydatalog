@@ -1,5 +1,5 @@
 from pydatalog.execution import RulesPlan, _union
-from pydatalog.nodes import Rule, Atom, Variable, Constant
+from pydatalog.nodes import Rule, Atom, Variable, Constant, program
 from pydatalog.db import Db
 import sqlite3
 
@@ -9,9 +9,9 @@ def test_simple_projection_from_edb():
     q = Db(conn, "q", 2)
     q.store(("a", "b"))
     q.store(("a", "b"))  # duplicate in EDB
-    rules = [
+    rules = program(
         Rule(Atom("p", (Variable("X"), Variable("Y"))), (Atom("q", (Variable("X"), Variable("Y"))),)),
-    ]
+    )
     plan = RulesPlan(rules, idb_storage=conn, edb_storage=conn)
     # query returns multiple rows handled via storage semantics
     assert list(set(plan.query("p"))) == [("a", "b")]
@@ -24,11 +24,11 @@ def test_head_constant_projection():
     k2.store(("tag", "a"))
     k2.store(("tag", "b"))
     k2.store(("zz", "c"))
-    rules = [
+    rules = program(
         Rule(Atom("s", (Constant("tag"), Variable("X"))), (Atom("k2", (Constant("tag"), Variable("X"))),)),
         # head with multiple bodies via an additional rule producing a different constant
         Rule(Atom("s", (Constant("tag2"), Variable("X"))), (Atom("k2", (Constant("zz"), Variable("X"))),)),
-    ]
+    )
     plan = RulesPlan(rules, idb_storage=conn, edb_storage=conn)
     assert set(plan.query("s")) == {("tag", "a"), ("tag", "b"), ("tag2", "c")}
     assert list(plan.query("s", (0, "zz"))) == []
@@ -41,9 +41,9 @@ def test_query_with_keys_filters():
     q.store(("a", "b"))
     q.store(("c", "d"))
     q.store(("a", "b"))  # duplicate row
-    rules = [
+    rules = program(
         Rule(Atom("p", (Variable("X"), Variable("Y"))), (Atom("q", (Variable("X"), Variable("Y"))),)),
-    ]
+    )
     plan = RulesPlan(rules, idb_storage=conn, edb_storage=conn)
     assert list(set(plan.query("p", (0, "a")))) == [("a", "b")]
     assert list(set(plan.query("p", (1, "d")))) == [("c", "d")]
@@ -58,13 +58,13 @@ def test_three_body_join_rule():
     a.store(("a", "b")); a.store(("a", "x"))
     b.store(("b", "c")); b.store(("x", "y"))
     c.store(("c", "d")); c.store(("y", "z"))
-    rules = [
+    rules = program(
         Rule(Atom("r", (Variable("X"), Variable("Z"), Variable("W"))), (
             Atom("a", (Variable("X"), Variable("Y"))),
             Atom("b", (Variable("Y"), Variable("Z"))),
             Atom("c", (Variable("Z"), Variable("W"))),
         )),
-    ]
+    )
     plan = RulesPlan(rules, idb_storage=conn, edb_storage=conn)
     rows = set(plan.query("r"))
     assert rows == {("a", "c", "d"), ("a", "y", "z")}
@@ -78,13 +78,13 @@ def test_recursive_path():
     edge = Db(conn, "edge", 2)
     for e in [("a","b"),("b","c"),("c","d")]:
         edge.store(e)
-    rules = [
+    rules = program(
         Rule(Atom("path", (Variable("X"), Variable("Y"))), (Atom("edge", (Variable("X"), Variable("Y"))),)),
         Rule(Atom("path", (Variable("X"), Variable("Z"))), (
             Atom("edge", (Variable("X"), Variable("Y"))),
             Atom("path", (Variable("Y"), Variable("Z"))),
         )),
-    ]
+    )
     plan = RulesPlan(rules, idb_storage=conn, edb_storage=conn)
     paths = set(plan.query("path"))
     expected = {("a", "b"), ("b", "c"), ("c", "d"), ("a", "c"), ("b", "d"), ("a", "d")}
@@ -113,7 +113,7 @@ def test_recursive_query_with_many_irrelevant_facts():
         other.store((f"o{i}",))
 
     # Rules include recursion for path and some unrelated rules
-    rules = [
+    rules = program(
         Rule(Atom("path", (Variable("X"), Variable("Y"))), (Atom("edge", (Variable("X"), Variable("Y"))),)),
         Rule(Atom("path", (Variable("X"), Variable("Z"))), (
             Atom("edge", (Variable("X"), Variable("Y"))),
@@ -121,7 +121,7 @@ def test_recursive_query_with_many_irrelevant_facts():
         )),
         # Unrelated rule shouldn't affect path queries
         Rule(Atom("junk", (Variable("X"),)), (Atom("other", (Variable("X"),)),)),
-    ]
+    )
 
     plan = RulesPlan(rules, idb_storage=conn, edb_storage=conn)
 
@@ -141,20 +141,19 @@ def test_long_body_chain():
     c = Db(conn, "c", 2)
     d = Db(conn, "d", 2)
     e = Db(conn, "e", 2)
-    r = Db(conn, "r", 5)
     a.store(("n1", "n2"))
     b.store(("n2", "n3"))
     c.store(("n3", "n4"))
     d.store(("n4", "n5"))
     e.store(("n5", "n6"))
-    rules = [
+    rules = program(
         Rule(Atom("r", (Variable("A"), Variable("B"), Variable("C"), Variable("D"), Variable("E"))), (
             Atom("a", (Variable("A"), Variable("B"))),
             Atom("b", (Variable("B"), Variable("C"))),
             Atom("c", (Variable("C"), Variable("D"))),
             Atom("d", (Variable("D"), Variable("E"))),
         )),
-    ]
+    )
     plan = RulesPlan(rules, idb_storage=conn, edb_storage=conn)
     rows = set(plan.query("r"))
     assert rows == {("n1", "n2", "n3", "n4", "n5")}
@@ -164,13 +163,12 @@ def test_long_body_chain():
 def test_head_multiple_rules_and_constants():
     conn = sqlite3.connect(":memory:")
     src = Db(conn, "src", 2)
-    dst = Db(conn, "dst", 2)
     src.store(("alpha", "1"))
     src.store(("beta", "2"))
-    rules = [
+    rules = program(
         Rule(Atom("dst", (Constant("tag"), Variable("X"))), (Atom("src", (Variable("Y"), Variable("X"))),)),
         Rule(Atom("dst", (Constant("tag"), Constant("3"))), ()),
-    ]
+    )
     plan = RulesPlan(rules, idb_storage=conn, edb_storage=conn)
     plan.execute()
     rows = set(plan.query("dst"))
@@ -181,11 +179,9 @@ def test_head_multiple_rules_and_constants():
 def test_mutual_recursion_even_odd():
     conn = sqlite3.connect(":memory:")
     succ = Db(conn, "succ", 2)
-    even = Db(conn, "even", 1)
-    odd = Db(conn, "odd", 1)
     for i in range(0, 6):
         succ.store((str(i), str(i + 1)))
-    rules = [
+    rules = program(
         Rule(Atom("even", (Constant("0"),)), ()),
         Rule(Atom("odd", (Variable("Y"),)), (
             Atom("succ", (Variable("X"), Variable("Y"))),
@@ -195,7 +191,7 @@ def test_mutual_recursion_even_odd():
             Atom("succ", (Variable("X"), Variable("Y"))),
             Atom("odd", (Variable("X"),)),
         )),
-    ]
+    )
     plan = RulesPlan(rules, idb_storage=conn, edb_storage=conn)
     plan.execute()
     evens = set(plan.query("even"))
@@ -210,16 +206,15 @@ def test_varying_arities_and_multi_row():
     conn = sqlite3.connect(":memory:")
     a1 = Db(conn, "a1", 1)
     a2 = Db(conn, "a2", 1)
-    r2 = Db(conn, "r2", 2)
     a1.store(("x",))
     a1.store(("y",))
     a2.store(("z",))
-    rules = [
+    rules = program(
         Rule(Atom("r2", (Variable("X"), Variable("Z"))), (
             Atom("a1", (Variable("X"),)),
             Atom("a2", (Variable("Z"),)),
         )),
-    ]
+    )
     plan = RulesPlan(rules, idb_storage=conn, edb_storage=conn)
     rows = set(plan.query("r2"))
     assert rows == {("x", "z"), ("y", "z")}
@@ -250,9 +245,9 @@ def test_union_conflict_returns_none():
 def test_query_unknown_relation_returns_empty():
     conn = sqlite3.connect(":memory:")
     # minimal plan with unrelated rule
-    rules = [
+    rules = program(
         Rule(Atom("p", (Constant("x"),)), ()),
-    ]
+    )
     plan = RulesPlan(rules, idb_storage=conn, edb_storage=conn)
     plan.execute()
     assert list(plan.query("unknown")) == []
@@ -262,12 +257,12 @@ def test_query_unknown_relation_returns_empty():
 def test_duplicate_fact_does_not_propagate_twice():
     conn = sqlite3.connect(":memory:")
     # Two identical fact rules for head 'h'
-    rules = [
+    rules = program(
         Rule(Atom("h", (Constant("v"),)), ()),
         Rule(Atom("h", (Constant("v"),)), ()),
         # Derived relation depends on h
         Rule(Atom("d", (Variable("X"),)), (Atom("h", (Variable("X"),)),)),
-    ]
+    )
     plan = RulesPlan(rules, idb_storage=conn, edb_storage=conn)
     plan.execute()
     rows = list(plan.query("d"))
@@ -279,9 +274,9 @@ def test_explored_mapping_prevents_rework():
     conn = sqlite3.connect(":memory:")
     q = Db(conn, "q", 1)
     q.store(("x",))
-    rules = [
+    rules = program(
         Rule(Atom("p", (Variable("X"),)), (Atom("q", (Variable("X"),)),)),
-    ]
+    )
     plan = RulesPlan(rules, idb_storage=conn, edb_storage=conn)
     # Query same keys twice; derived 'p' should have single row
     list(plan.query("q", (0, "x")))
@@ -295,9 +290,9 @@ def test_body_constant_mismatch_blocks_propagation():
     conn = sqlite3.connect(":memory:")
     a = Db(conn, "a", 2)
     a.store(("x", "d"))  # second value mismatches expected constant
-    rules = [
+    rules = program(
         Rule(Atom("r", (Variable("X"),)), (Atom("a", (Variable("X"), Constant("c"))),)),
-    ]
+    )
     plan = RulesPlan(rules, idb_storage=conn, edb_storage=conn)
     rows = list(plan.query("r"))
     assert rows == []
@@ -308,9 +303,9 @@ def test_edb_head_propagates_to_uppers_on_query():
     conn = sqlite3.connect(":memory:")
     q = Db(conn, "q", 1)
     q.store(("z",))
-    rules = [
+    rules = program(
         Rule(Atom("p", (Variable("X"),)), (Atom("q", (Variable("X"),)),)),
-    ]
+    )
     plan = RulesPlan(rules, idb_storage=conn, edb_storage=conn)
     # Query base EDB head to trigger downward propagation to its uppers
     list(plan.query("q"))
@@ -331,7 +326,7 @@ def test_union_multiple_key_overlap_and_conflict():
 
 def test_query_unknown_with_keys_returns_empty():
     conn = sqlite3.connect(":memory:")
-    rules = []
+    rules = program()
     plan = RulesPlan(rules, idb_storage=conn, edb_storage=conn)
     assert list(plan.query("unknown", (0, "x"))) == []
     conn.close()
@@ -342,9 +337,9 @@ def test_head_constant_applied_in_result():
     a = Db(conn, "a", 1)
     a.store(("x",))
     # Head sets constant 'c'; body matches any X from relation 'a'
-    rules = [
+    rules = program(
         Rule(Atom("p", (Constant("c"),)), (Atom("a", (Variable("X"),)),)),
-    ]
+    )
     plan = RulesPlan(rules, idb_storage=conn, edb_storage=conn)
     # Query should return the head constant regardless of body value
     rows = list(plan.query("p"))
@@ -358,9 +353,9 @@ def test_insufficient_body_mapping_prevents_derivation():
     a = Db(conn, "a", 2)
     a.store(("x", "y"))
     # In head, only one variable; body second term maps to a canonical without value
-    rules = [
+    rules = program(
         Rule(Atom("r", (Variable("X"),)), (Atom("a", (Variable("X"), Variable("Z"))),)),
-    ]
+    )
     plan = RulesPlan(rules, idb_storage=conn, edb_storage=conn)
     # Apply a filter that binds X but leaves Z unresolved in canonical mapping resolution paths
     rows = list(plan.query("r", (0, "x")))
@@ -375,10 +370,10 @@ def test_to_lower_mapping_omits_unbound_canonicals():
     conn = sqlite3.connect(":memory:")
     a = Db(conn, "a", 2)
     a.store(("k", "const"))
-    rules = [
+    rules = program(
         # head variable X, body expects (X, "const"); leave any other canonical unmapped
         Rule(Atom("r", (Variable("X"),)), (Atom("a", (Variable("X"), Constant("const"))),)),
-    ]
+    )
     plan = RulesPlan(rules, idb_storage=conn, edb_storage=conn)
     rows = list(plan.query("r"))
     assert rows == [("k",)]

@@ -12,19 +12,19 @@ class RulesPlan:
     _heads: Dict[str, _RuleHeadPlan]
     _to_be_inserted: List[Tuple[str, Dict[int, str]]]
 
-    def __init__(self, rules: List[nodes.Rule], idb_storage: sqlite3.Connection, edb_storage: sqlite3.Connection) -> None:
+    def __init__(self, program: nodes.Program, idb_storage: sqlite3.Connection, edb_storage: sqlite3.Connection) -> None:
         self._heads = {}
         self._to_be_inserted = []
         idb_relations = set()
         # handling idb relations
-        for rule in rules:
+        for rule in program.rules:
             head_relation = rule.head.relation
             if head_relation not in self._heads:
                 self._heads[head_relation] = _RuleHeadPlan(db.Db(idb_storage, head_relation, rule.head.arity))
             if head_relation not in idb_relations:
                 idb_relations.add(head_relation)
         # handling edb relations and building the plan
-        for rule in rules:
+        for rule in program.rules:
             head_relation = rule.head.relation
             head_plan = self._heads[head_relation]
             # handle fact rules
