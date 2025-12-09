@@ -1,23 +1,42 @@
 # pydatalog
 
-[![PyPI - Version](https://img.shields.io/pypi/v/pydatalog.svg)](https://pypi.org/project/pydatalog)
-[![PyPI - Python Version](https://img.shields.io/pypi/pyversions/pydatalog.svg)](https://pypi.org/project/pydatalog)
-
 -----
 
 ## Table of Contents
 
-- [Installation](#installation)
+- [Development Setup](#development-setup)
 - [Quick start](#quick-start)
 - [API](#api)
 - [License](#license)
 
-## Installation
+## Development Setup
+
+This project uses [Hatch](https://hatch.pypa.io/latest/) for development and packaging.
 
 Requires Python 3.10+.
 
+1. Install Hatch:
+
 ```console
-pip install pydatalog
+pip install hatch
+```
+
+2. Run tests:
+
+```console
+hatch run test
+```
+
+3. Build artifacts (sdist and wheel):
+
+```console
+hatch build
+```
+
+4. Run the demo:
+
+```console
+hatch run python examples/demo.py
 ```
 
 ## Quick start
